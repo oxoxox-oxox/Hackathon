@@ -72,6 +72,8 @@ async function generateSessionFromCSV() {
           coreWord: coreWord.word,
           coreTranslation: coreWord.translation,
           coreModelPrompt: coreWord.modelPrompt,
+          // 核心模型配置（SimilarityModule 需要）
+          coreModel: { type: 'sphere', color: '#FFD700' },
           relatedWords,
           connectionStyle: { color: '#FFFFFF', opacity: 0.6 },
           category
