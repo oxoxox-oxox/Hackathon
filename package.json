@@ -10,7 +10,9 @@
     "install:all": "npm install && cd client && npm install && cd ../server && npm install"
   },
   "dependencies": {
-    "concurrently": "^8.2.2"
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "concurrently": "^8.2.2",
+    "vite": "^8.0.10"
   },
   "engines": {
     "node": ">=18"
