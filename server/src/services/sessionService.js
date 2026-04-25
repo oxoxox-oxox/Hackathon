@@ -1,12 +1,111 @@
 import { ModuleTypes, ScenarioContainerTypes } from '../../../shared/types.js';
+import vocabularyData from '../../../shared/vocabulary.js';
 
 /**
  * 学习会话服务
  * 负责生成和管理学习会话配置
+ * 使用 shared/vocabulary.js 中的单词数据
  */
 
-// 示例学习会话数据
+/**
+ * 根据 vocabulary.js 动态生成会话
+ */
+function generateSessionFromVocabulary() {
+  const modules = [];
+
+  // Click 模块
+  if (vocabularyData.click && vocabularyData.click.length > 0) {
+    vocabularyData.click.forEach((item, index) => {
+      modules.push({
+        id: `click-${index + 1}`,
+        type: ModuleTypes.CLICK,
+        autoAdvanceSeconds: 30,
+        interaction: { trigger: ['click', 'keyboard'], keys: ['Space', 'Enter'] },
+        data: {
+          word: item.word,
+          translation: item.translation,
+          phonetic: item.phonetic || '',
+          modelPrompt: item.modelPrompt,
+          tripoAssetId: null
+        }
+      });
+    });
+  }
+
+  // Similarity 模块
+  if (vocabularyData.similarity && vocabularyData.similarity.length > 0) {
+    vocabularyData.similarity.forEach((item, index) => {
+      modules.push({
+        id: `similarity-${index + 1}`,
+        type: ModuleTypes.SIMILARITY,
+        autoAdvanceSeconds: 45,
+        interaction: { trigger: ['click'], expandButtonLabel: '展开相关词' },
+        data: {
+          coreWord: item.word,
+          coreTranslation: item.translation,
+          similarWords: item.similarWords || [],
+          modelPrompt: item.modelPrompt,
+          tripoAssetId: null
+        }
+      });
+    });
+  }
+
+  // Rotate 模块
+  if (vocabularyData.rotate && vocabularyData.rotate.length > 0) {
+    vocabularyData.rotate.forEach((item, index) => {
+      modules.push({
+        id: `rotate-${index + 1}`,
+        type: ModuleTypes.ROTATE,
+        autoAdvanceSeconds: 40,
+        interaction: { trigger: ['gaze'], gazeThreshold: 2000 },
+        data: {
+          word: item.word,
+          translation: item.translation,
+          phonetic: item.phonetic || '',
+          viewAngles: item.viewAngles || ['front', 'side', 'back'],
+          modelPrompt: item.modelPrompt,
+          tripoAssetId: null
+        }
+      });
+    });
+  }
+
+  // Scenarios 模块
+  if (vocabularyData.scenarios && vocabularyData.scenarios.length > 0) {
+    vocabularyData.scenarios.forEach((scenario, index) => {
+      modules.push({
+        id: `scenarios-${index + 1}`,
+        type: ModuleTypes.SCENARIOS,
+        autoAdvanceSeconds: 60,
+        interaction: { trigger: ['click'], containerSwitchable: true },
+        data: {
+          scenarioName: scenario.scenarioName,
+          scenarioTranslation: scenario.scenarioTranslation,
+          description: scenario.description,
+          modelPrompt: scenario.modelPrompt,
+          words: scenario.words,
+          initialContainer: ScenarioContainerTypes.DIORAMA_3D,
+          tripoSceneId: null
+        }
+      });
+    });
+  }
+
+  return {
+    sessionId: 'vocabulary-session',
+    title: 'VR 英语词汇学习',
+    description: '通过 VR 交互学习英语词汇',
+    modules
+  };
+}
+
+// 从 vocabulary.js 生成的会话
+const dynamicSession = generateSessionFromVocabulary();
+
+// 示例学习会话数据（备用）
 const sampleSessions = {
+  'vocabulary-session': dynamicSession,
   'session-001': {
     sessionId: 'session-001',
     title: '形态变化词汇学习',
@@ -168,10 +267,10 @@ const sampleSessions = {
 };
 
 /**
- * 获取默认学习会话
+ * 获取默认学习会话（使用 vocabulary.js 数据）
  */
 export function getDefaultSession() {
-  return sampleSessions['session-001'];
+  return sampleSessions['vocabulary-session'] || dynamicSession;
 }
 
 /**
