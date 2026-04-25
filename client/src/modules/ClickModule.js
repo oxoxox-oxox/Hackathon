@@ -4,6 +4,7 @@ import { BaseModule } from './BaseModule.js';
 /**
  * Click 模块
  * 状态/形态切换，强调对立变化词义
+ * 支持从 Tripo API 加载 3D 模型
  */
 export class ClickModule extends BaseModule {
   constructor(engine, config) {
@@ -12,31 +13,90 @@ export class ClickModule extends BaseModule {
     this.data = config.data;
     this.isTransformed = false;
     this.model = null;
+    this.modelContainer = null;
     this.label = null;
+    this.isLoadingModel = false;
   }
   
   async init() {
-    // 创建初始模型
-    const { initialModel } = this.data;
-    this.model = this.createBasicModel(
-      initialModel.type || 'box',
-      initialModel.color || '#4CAF50'
-    );
-    this.model.position.set(0, 1.2, 0);
-    this.object3D.add(this.model);
+    // 创建模型容器
+    this.modelContainer = new THREE.Group();
+    this.modelContainer.position.set(0, 1.2, 0);
+    this.object3D.add(this.modelContainer);
+
+    // 检查是否有 modelPrompt，使用 Tripo 生成模型
+    if (this.data.modelPrompt) {
+      // 先显示占位模型
+      this.model = this.createBasicModel('sphere', '#4CAF50');
+      this.modelContainer.add(this.model);
+      
+      // 异步加载 Tripo 模型
+      this.loadTripoModelAsync();
+    } else {
+      // 使用基础几何模型
+      const { initialModel } = this.data;
+      this.model = this.createBasicModel(
+        initialModel?.type || 'box',
+        initialModel?.color || '#4CAF50'
+      );
+      this.modelContainer.add(this.model);
+    }
     
     // 创建文本标签
     this.updateLabel();
     
-    // 注册交互
-    this.engine.interactionSystem.register(this.model, {
+    // 注册交互（对容器注册，这样换模型后仍然有效）
+    this.engine.interactionSystem.register(this.modelContainer, {
       onClick: () => this.toggle(),
-      onHoverStart: (obj) => this.onHover(true),
-      onHoverEnd: (obj) => this.onHover(false)
+      onHoverStart: () => this.onHover(true),
+      onHoverEnd: () => this.onHover(false)
     });
     
     // 初始不可见
     this.object3D.visible = false;
+  }
+
+  /**
+   * 异步加载 Tripo 模型
+   */
+  async loadTripoModelAsync() {
+    if (this.isLoadingModel || !this.data.modelPrompt) return;
+    
+    this.isLoadingModel = true;
+    console.log('[v0] ClickModule 加载 Tripo 模型:', this.data.modelPrompt);
+
+    try {
+      const tripoModel = await this.loadTripoModel(this.data.modelPrompt, {
+        scale: 0.8
+      });
+
+      // 移除占位模型
+      if (this.model) {
+        this.modelContainer.remove(this.model);
+        this.disposeModel(this.model);
+      }
+
+      // 添加 Tripo 模型
+      this.model = tripoModel;
+      this.modelContainer.add(this.model);
+
+      // 重新注册交互（针对新模型的所有子对象）
+      this.model.traverse(child => {
+        if (child.isMesh) {
+          this.engine.interactionSystem.register(child, {
+            onClick: () => this.toggle(),
+            onHoverStart: () => this.onHover(true),
+            onHoverEnd: () => this.onHover(false)
+          });
+        }
+      });
+
+      console.log('[v0] ClickModule Tripo 模型加载成功');
+    } catch (error) {
+      console.error('[v0] ClickModule Tripo 模型加载失败:', error);
+    } finally {
+      this.isLoadingModel = false;
+    }
   }
   
   /**
@@ -148,12 +208,23 @@ export class ClickModule extends BaseModule {
    * 悬停效果
    */
   onHover(isHovering) {
+    if (!this.modelContainer) return;
+    
     if (isHovering) {
-      this.animateScale(this.model, 1.1, 150);
-      this.model.material.emissive = new THREE.Color(0x333333);
+      this.animateScale(this.modelContainer, 1.1, 150);
+      // 为所有子 mesh 设置 emissive
+      this.modelContainer.traverse(child => {
+        if (child.isMesh && child.material) {
+          child.material.emissive = new THREE.Color(0x333333);
+        }
+      });
     } else {
-      this.animateScale(this.model, 1, 150);
-      this.model.material.emissive = new THREE.Color(0x000000);
+      this.animateScale(this.modelContainer, 1, 150);
+      this.modelContainer.traverse(child => {
+        if (child.isMesh && child.material) {
+          child.material.emissive = new THREE.Color(0x000000);
+        }
+      });
     }
   }
   
@@ -185,11 +256,11 @@ export class ClickModule extends BaseModule {
    * 更新循环
    */
   update(delta, elapsed) {
-    if (!this.isActive) return;
+    if (!this.isActive || !this.modelContainer) return;
     
-    // 轻微浮动动画
-    this.model.position.y = 1.2 + Math.sin(elapsed * 2) * 0.05;
-    this.model.rotation.y += delta * 0.3;
+    // 轻微浮动动画（在容器上应用）
+    this.modelContainer.position.y = 1.2 + Math.sin(elapsed * 2) * 0.05;
+    this.modelContainer.rotation.y += delta * 0.3;
   }
   
   /**

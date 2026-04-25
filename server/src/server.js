@@ -1,4 +1,22 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import fs from 'fs';
+
+// 加载环境变量（优先从 Vercel 共享目录，其次从本地 .env）
+const envPaths = [
+  '/vercel/share/.env.project',
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), 'server/.env')
+];
+
+for (const envPath of envPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log(`[v0] 已加载环境变量: ${envPath}`);
+  }
+}
+
 import app from './app.js';
 import os from 'os';
 

@@ -26,7 +26,14 @@ function generateSessionFromVocabulary() {
           translation: item.translation,
           phonetic: item.phonetic || '',
           modelPrompt: item.modelPrompt,
-          tripoAssetId: null
+          // HUD 文本显示
+          hudText: {
+            initial: `${item.word} - ${item.translation}`,
+            transformed: `${item.word} - ${item.translation}`
+          },
+          // 基础模型配置（Tripo 加载前的占位）
+          initialModel: { type: 'sphere', color: '#4CAF50' },
+          transformedModel: { type: 'sphere', color: '#2196F3' }
         }
       });
     });

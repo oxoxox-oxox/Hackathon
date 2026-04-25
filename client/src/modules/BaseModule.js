@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { modelLoader } from '../services/ModelLoader.js';
 
 /**
  * 模块基类
@@ -162,7 +163,7 @@ export class BaseModule {
   }
   
   /**
-   * 创建基础几何模型
+   * 创建基础几何模型（占位用）
    */
   createBasicModel(type, color) {
     let geometry;
@@ -192,6 +193,103 @@ export class BaseModule {
     });
     
     return new THREE.Mesh(geometry, material);
+  }
+
+  /**
+   * 从 Tripo API 加载 3D 模型
+   * @param {string} prompt - 模型描述
+   * @param {Object} options - 选项
+   * @returns {Promise<THREE.Group>}
+   */
+  async loadTripoModel(prompt, options = {}) {
+    console.log('[v0] 加载 Tripo 模型:', prompt);
+    
+    try {
+      const model = await modelLoader.loadFromPrompt(prompt, options);
+      
+      // 应用缩放
+      if (options.scale) {
+        model.scale.multiplyScalar(options.scale);
+      }
+      
+      return model;
+    } catch (error) {
+      console.error('[v0] Tripo 模型加载失败:', error);
+      // 返回占位模型
+      return this.createBasicModel('sphere', '#888888');
+    }
+  }
+
+  /**
+   * 替换现有模型为 Tripo 模型
+   */
+  async replaceWithTripoModel(currentModel, prompt, options = {}) {
+    const parent = currentModel.parent;
+    const position = currentModel.position.clone();
+    const rotation = currentModel.rotation.clone();
+    
+    // 显示加载状态
+    this.showModelLoading(currentModel);
+    
+    try {
+      const newModel = await this.loadTripoModel(prompt, options);
+      
+      // 复制位置和旋转
+      newModel.position.copy(position);
+      newModel.rotation.copy(rotation);
+      
+      // 移除旧模型
+      if (parent) {
+        parent.remove(currentModel);
+        parent.add(newModel);
+      }
+      
+      // 清理旧模型
+      this.disposeModel(currentModel);
+      
+      return newModel;
+    } catch (error) {
+      console.error('[v0] 替换模型失败:', error);
+      this.hideModelLoading(currentModel);
+      return currentModel;
+    }
+  }
+
+  /**
+   * 显示模型加载状态
+   */
+  showModelLoading(model) {
+    if (model.material) {
+      model._originalOpacity = model.material.opacity;
+      model.material.transparent = true;
+      model.material.opacity = 0.3;
+    }
+  }
+
+  /**
+   * 隐藏模型加载状态
+   */
+  hideModelLoading(model) {
+    if (model.material && model._originalOpacity !== undefined) {
+      model.material.opacity = model._originalOpacity;
+      delete model._originalOpacity;
+    }
+  }
+
+  /**
+   * 清理单个模型资源
+   */
+  disposeModel(model) {
+    model.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
   }
   
   /**

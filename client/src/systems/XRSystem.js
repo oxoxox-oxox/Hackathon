@@ -16,14 +16,25 @@ export class XRSystem {
   }
   
   async init() {
+    console.log('[v0] XRSystem 初始化开始');
+    
     // 检测 WebXR 支持
     if ('xr' in navigator) {
       try {
-        this.isVRSupported = await navigator.xr.isSessionSupported('immersive-vr');
+        // 检查是否在安全上下文中（HTTPS 或 localhost）
+        if (!window.isSecureContext) {
+          console.warn('[v0] WebXR 需要安全上下文 (HTTPS)');
+          this.isVRSupported = false;
+        } else {
+          this.isVRSupported = await navigator.xr.isSessionSupported('immersive-vr');
+          console.log('[v0] VR 支持状态:', this.isVRSupported);
+        }
       } catch (e) {
-        console.warn('WebXR 检测失败:', e);
+        console.warn('[v0] WebXR 检测失败:', e);
         this.isVRSupported = false;
       }
+    } else {
+      console.log('[v0] 浏览器不支持 WebXR API');
     }
     
     // 设置 VR 按钮
@@ -109,14 +120,21 @@ export class XRSystem {
   }
   
   async enterVR() {
-    if (!this.isVRSupported) return;
+    if (!this.isVRSupported) {
+      console.warn('[v0] VR 不可用，无法进入 VR 模式');
+      return;
+    }
+    
+    console.log('[v0] 正在请求 VR 会话...');
     
     try {
       const sessionInit = {
-        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+        requiredFeatures: ['local-floor']
       };
       
       this.session = await navigator.xr.requestSession('immersive-vr', sessionInit);
+      console.log('[v0] VR 会话已创建');
       
       this.session.addEventListener('end', () => this.onSessionEnd());
       
@@ -126,11 +144,15 @@ export class XRSystem {
       const button = document.getElementById('vr-button');
       if (button) button.textContent = '退出 VR 模式';
       
+      console.log('[v0] 成功进入 VR 模式');
+      
       // 触发进入 VR 事件
       this.onEnterVR?.();
       
     } catch (e) {
-      console.error('进入 VR 失败:', e);
+      console.error('[v0] 进入 VR 失败:', e);
+      // 显示用户友好的错误信息
+      alert('无法进入 VR 模式: ' + e.message);
     }
   }
   
