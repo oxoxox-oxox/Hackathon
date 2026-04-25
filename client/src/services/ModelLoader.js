@@ -1,17 +1,69 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { tripoApi } from '../api/client.js';
 
 /**
  * 模型加载器服务
- * 优先从本地 public/models 加载预生成的模型
- * 如果本地不存在，则使用占位模型
+ * 流程：本地缓存 -> 本地模型文件 -> Tripo API 实时生成 -> 占位模型
  */
 export class ModelLoader {
-  constructor() {
+  constructor(options = {}) {
     this.gltfLoader = new GLTFLoader();
     this.cache = new Map(); // word -> model cache
     this.modelMap = null; // 模型映射表
     this.modelMapLoaded = false;
+    
+    // 实时生成配置
+    this.enableRealtimeGeneration = options.enableRealtimeGeneration !== false;
+    this.generationTimeout = options.generationTimeout || 120000; // 2分钟
+    
+    // 生成状态管理
+    this.generationTasks = new Map(); // word -> Promise
+    this.failedWords = new Set(); // 生成失败的单词
+    
+    // 事件回调
+    this.eventCallbacks = {
+      onGenerationStart: [],
+      onGenerationProgress: [],
+      onGenerationComplete: [],
+      onGenerationFailed: []
+    };
+  }
+
+  /**
+   * 注册事件回调
+   */
+  on(event, callback) {
+    if (this.eventCallbacks[event]) {
+      this.eventCallbacks[event].push(callback);
+    }
+  }
+
+  /**
+   * 移除事件回调
+   */
+  off(event, callback) {
+    if (this.eventCallbacks[event]) {
+      const index = this.eventCallbacks[event].indexOf(callback);
+      if (index > -1) {
+        this.eventCallbacks[event].splice(index, 1);
+      }
+    }
+  }
+
+  /**
+   * 触发事件
+   */
+  _emit(event, data) {
+    if (this.eventCallbacks[event]) {
+      this.eventCallbacks[event].forEach(callback => {
+        try {
+          callback(data);
+        } catch (e) {
+          console.error('[ModelLoader] 事件回调错误:', e);
+        }
+      });
+    }
   }
 
   /**
@@ -24,14 +76,13 @@ export class ModelLoader {
       const response = await fetch('/models/model-map.json');
       if (response.ok) {
         this.modelMap = await response.json();
-        console.log('[v0] 模型映射表已加载:', Object.keys(this.modelMap).length, '个模型');
+        console.log('[ModelLoader] 模型映射表已加载:', Object.keys(this.modelMap).length, '个模型');
       } else {
         this.modelMap = {};
-        console.warn('[v0] 模型映射表不存在，将使用占位模型');
       }
     } catch (error) {
       this.modelMap = {};
-      console.warn('[v0] 加载模型映射表失败:', error);
+      console.warn('[ModelLoader] 加载模型映射表失败:', error);
     }
     
     this.modelMapLoaded = true;
@@ -39,73 +90,147 @@ export class ModelLoader {
   }
 
   /**
-   * 根据单词加载本地 3D 模型
-   * @param {string} word - 单词
-   * @param {Object} options - 选项
-   * @returns {Promise<THREE.Group>} 加载的模型
+   * 根据单词加载 3D 模型
+   * 流程：缓存 -> 本地文件 -> Tripo API 生成 -> 占位模型
    */
   async loadByWord(word, options = {}) {
     const cacheKey = word.toLowerCase().trim();
     
-    // 检查缓存
+    // 1. 检查内存缓存
     if (this.cache.has(cacheKey)) {
-      console.log('[v0] 从缓存加载模型:', word);
+      console.log('[ModelLoader] 从缓存加载:', word);
       return this.cloneModel(this.cache.get(cacheKey));
     }
 
-    // 确保模型映射表已加载
+    // 2. 确保模型映射表已加载
     await this.loadModelMap();
 
-    // 查找本地模型路径
+    // 3. 查找本地模型
     const modelPath = this.modelMap[word] || this.modelMap[cacheKey];
-    
     if (modelPath) {
       try {
-        console.log('[v0] 从本地加载模型:', word, modelPath);
+        console.log('[ModelLoader] 从本地加载:', word, modelPath);
         const model = await this._loadGLB(modelPath);
         this._normalizeModel(model, options.scale || 1);
         this.cache.set(cacheKey, model);
         return this.cloneModel(model);
       } catch (error) {
-        console.error('[v0] 本地模型加载失败:', word, error);
+        console.error('[ModelLoader] 本地模型加载失败:', word, error);
       }
     }
 
-    // 本地模型不存在，返回占位模型
-    console.log('[v0] 使用占位模型:', word);
+    // 4. 尝试实时生成模型
+    if (this.enableRealtimeGeneration && !this.failedWords.has(cacheKey)) {
+      try {
+        console.log('[ModelLoader] 调用 Tripo API 生成模型:', word);
+        const model = await this.generateModelForWord(word, options);
+        return model;
+      } catch (error) {
+        console.warn('[ModelLoader] Tripo 生成失败，使用占位模型:', word, error.message);
+      }
+    }
+
+    // 5. 返回占位模型
+    console.log('[ModelLoader] 使用占位模型:', word);
     const placeholder = this._createPlaceholderModel(word, options.color);
     return placeholder;
   }
 
   /**
-   * 根据提示词加载模型（兼容旧接口）
-   * 现在改为从本地加载
+   * 为单词生成 3D 模型 (调用 Tripo API)
    */
-  async loadFromPrompt(prompt, options = {}) {
-    // 从提示词中提取单词（简单处理）
-    const word = this._extractWordFromPrompt(prompt);
-    return this.loadByWord(word, options);
+  async generateModelForWord(word, options = {}) {
+    const cacheKey = word.toLowerCase().trim();
+
+    // 检查是否已在生成中
+    if (this.generationTasks.has(cacheKey)) {
+      console.log('[ModelLoader] 等待已有生成任务:', word);
+      return this.generationTasks.get(cacheKey);
+    }
+
+    // 检查是否之前失败过
+    if (this.failedWords.has(cacheKey)) {
+      throw new Error(`Previously failed: ${word}`);
+    }
+
+    // 创建生成任务
+    const task = this._executeGeneration(word, options)
+      .then(model => {
+        this.cache.set(cacheKey, model);
+        return this.cloneModel(model);
+      })
+      .catch(error => {
+        this.failedWords.add(cacheKey);
+        throw error;
+      })
+      .finally(() => {
+        this.generationTasks.delete(cacheKey);
+      });
+
+    this.generationTasks.set(cacheKey, task);
+    return task;
   }
 
   /**
-   * 从提示词中提取单词
+   * 执行实际的模型生成
    */
-  _extractWordFromPrompt(prompt) {
-    // 尝试匹配常见模式
-    const patterns = [
-      /^a 3d model of (?:a |an )?(.+?),/i,
-      /^(.+?),/,
-      /^(.+)$/
-    ];
-    
-    for (const pattern of patterns) {
-      const match = prompt.match(pattern);
-      if (match) {
-        return match[1].trim().toLowerCase();
+  async _executeGeneration(word, options = {}) {
+    // 触发开始事件
+    this._emit('onGenerationStart', { word });
+
+    try {
+      // 生成提示词
+      const prompt = options.prompt || `A detailed 3D model of a ${word}, realistic style, high quality, centered composition`;
+
+      console.log('[ModelLoader] 提交生成任务:', word, prompt);
+
+      // 调用 Tripo API
+      const result = await tripoApi.generateFromText(prompt, {
+        model_version: 'v2.0-20240919',
+        face_limit: 10000
+      });
+
+      console.log('[ModelLoader] 任务已创建:', word, result.taskId);
+      this._emit('onGenerationProgress', { word, status: 'processing', taskId: result.taskId });
+
+      // 等待任务完成
+      const taskResult = await tripoApi.waitForTask(result.taskId, {
+        maxAttempts: 60,
+        interval: 2000
+      });
+
+      console.log('[ModelLoader] 任务完成:', word, taskResult);
+
+      // 获取模型 URL
+      let modelUrl = null;
+      if (taskResult.result?.model?.glb?.url) {
+        modelUrl = taskResult.result.model.glb.url;
+      } else if (taskResult.result?.pbr_model?.glb?.url) {
+        modelUrl = taskResult.result.pbr_model.glb.url;
+      } else if (taskResult.output?.model) {
+        modelUrl = taskResult.output.model;
       }
+
+      if (!modelUrl) {
+        console.error('[ModelLoader] 无法获取模型 URL:', taskResult);
+        throw new Error('No model URL in response');
+      }
+
+      console.log('[ModelLoader] 下载模型:', word, modelUrl);
+
+      // 加载模型
+      const model = await this._loadGLB(modelUrl);
+      this._normalizeModel(model, options.scale || 1);
+
+      // 触发完成事件
+      this._emit('onGenerationComplete', { word, model });
+
+      return model;
+    } catch (error) {
+      console.error('[ModelLoader] 生成失败:', word, error);
+      this._emit('onGenerationFailed', { word, error });
+      throw error;
     }
-    
-    return prompt.trim().toLowerCase();
   }
 
   /**
@@ -118,7 +243,9 @@ export class ModelLoader {
         (gltf) => {
           resolve(gltf.scene);
         },
-        undefined,
+        (progress) => {
+          // 加载进度
+        },
         (error) => {
           reject(error);
         }
@@ -130,17 +257,14 @@ export class ModelLoader {
    * 标准化模型大小和位置
    */
   _normalizeModel(model, scale = 1) {
-    // 计算包围盒
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    // 计算缩放比例，使最大维度为 1
     const maxDim = Math.max(size.x, size.y, size.z);
     if (maxDim > 0) {
       const normalizeScale = scale / maxDim;
       model.scale.multiplyScalar(normalizeScale);
-      // 居中模型
       model.position.sub(center.multiplyScalar(normalizeScale));
     }
   }
@@ -151,7 +275,6 @@ export class ModelLoader {
   cloneModel(model) {
     const cloned = model.clone();
     
-    // 深度克隆材质以避免共享
     cloned.traverse(child => {
       if (child.isMesh && child.material) {
         child.material = child.material.clone();
@@ -166,9 +289,8 @@ export class ModelLoader {
    */
   _createPlaceholderModel(word, color = 0x4CAF50) {
     const group = new THREE.Group();
-    group.name = 'model_' + word;
+    group.name = 'placeholder_' + word;
 
-    // 根据单词生成不同的几何体
     const geometry = this._getGeometryForWord(word);
     const material = new THREE.MeshStandardMaterial({
       color: color,
@@ -188,7 +310,6 @@ export class ModelLoader {
    * 根据单词选择几何体
    */
   _getGeometryForWord(word) {
-    // 基于单词生成一个确定性的几何体类型
     const hash = this._hashCode(word);
     const geometries = [
       () => new THREE.SphereGeometry(0.5, 32, 32),
@@ -218,22 +339,6 @@ export class ModelLoader {
   }
 
   /**
-   * 预加载模型列表
-   */
-  async preload(words) {
-    console.log('[v0] 预加载模型:', words.length, '个');
-    
-    const results = await Promise.allSettled(
-      words.map(word => this.loadByWord(word))
-    );
-
-    const success = results.filter(r => r.status === 'fulfilled').length;
-    console.log('[v0] 预加载完成:', success, '/', words.length);
-    
-    return results;
-  }
-
-  /**
    * 清理缓存
    */
   clearCache() {
@@ -250,9 +355,13 @@ export class ModelLoader {
       });
     });
     this.cache.clear();
+    this.failedWords.clear();
   }
 }
 
 // 单例导出
-export const modelLoader = new ModelLoader();
+export const modelLoader = new ModelLoader({
+  enableRealtimeGeneration: true
+});
+
 export default modelLoader;

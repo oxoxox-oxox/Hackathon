@@ -25,8 +25,11 @@ export class SimilarityModule extends BaseModule {
     this.coreModelContainer.position.set(0, 1.5, 0);
     this.coreModelContainer.scale.set(1.2, 1.2, 1.2);
     this.object3D.add(this.coreModelContainer);
+
+    // 设置模型生成事件监听
+    this._setupModelEvents();
     
-    // 加载核心词本地模型
+    // 加载核心词模型（本地 -> Tripo API -> 占位模型）
     const { coreWord } = this.data;
     try {
       this.coreModel = await modelLoader.loadByWord(coreWord, {
@@ -75,6 +78,54 @@ export class SimilarityModule extends BaseModule {
     });
     
     this.object3D.visible = false;
+  }
+
+  /**
+   * 设置模型生成事件监听
+   */
+  _setupModelEvents() {
+    const { coreWord } = this.data;
+    if (!coreWord) return;
+
+    // 监听生成完成
+    this._onGenerationComplete = (data) => {
+      if (data.word.toLowerCase() === coreWord.toLowerCase()) {
+        console.log('[SimilarityModule] 核心模型生成完成，替换模型:', coreWord);
+        this._replaceCoreModel(data.model);
+      }
+    };
+    modelLoader.on('onGenerationComplete', this._onGenerationComplete);
+  }
+
+  /**
+   * 替换核心模型
+   */
+  _replaceCoreModel(newModel) {
+    if (!this.coreModelContainer) return;
+
+    // 移除旧模型
+    if (this.coreModel) {
+      this.coreModelContainer.remove(this.coreModel);
+      this.coreModel.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+    }
+
+    // 添加新模型
+    this.coreModel = modelLoader.cloneModel(newModel);
+    this.coreModelContainer.add(this.coreModel);
+
+    // 重新注册交互
+    this.coreModel.traverse(child => {
+      if (child.isMesh) {
+        this.engine.interactionSystem.register(child, {
+          onClick: () => this.toggleExpand(),
+          onHoverStart: () => this.onCoreHover(true),
+          onHoverEnd: () => this.onCoreHover(false)
+        });
+      }
+    });
   }
   
   /**

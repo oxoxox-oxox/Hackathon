@@ -25,7 +25,10 @@ export class ClickModule extends BaseModule {
     this.modelContainer.position.set(0, 1.2, 0);
     this.object3D.add(this.modelContainer);
 
-    // 加载本地模型（如果存在）或使用占位模型
+    // 监听模型生成事件
+    this._setupModelEvents();
+
+    // 加载模型（本地 -> Tripo API -> 占位模型）
     await this.loadLocalModel();
     
     // 创建文本标签
@@ -40,6 +43,70 @@ export class ClickModule extends BaseModule {
     
     // 初始不可见
     this.object3D.visible = false;
+  }
+
+  /**
+   * 设置模型生成事件监听
+   */
+  _setupModelEvents() {
+    const word = this.data.word;
+    if (!word) return;
+
+    // 监听生成开始
+    this._onGenerationStart = (data) => {
+      if (data.word.toLowerCase() === word.toLowerCase()) {
+        console.log('[ClickModule] 模型生成开始:', word);
+      }
+    };
+    modelLoader.on('onGenerationStart', this._onGenerationStart);
+
+    // 监听生成完成
+    this._onGenerationComplete = (data) => {
+      if (data.word.toLowerCase() === word.toLowerCase()) {
+        console.log('[ClickModule] 模型生成完成，替换模型:', word);
+        this._replaceWithGeneratedModel(data.model);
+      }
+    };
+    modelLoader.on('onGenerationComplete', this._onGenerationComplete);
+
+    // 监听生成失败
+    this._onGenerationFailed = (data) => {
+      if (data.word.toLowerCase() === word.toLowerCase()) {
+        console.warn('[ClickModule] 模型生成失败:', word, data.error?.message);
+      }
+    };
+    modelLoader.on('onGenerationFailed', this._onGenerationFailed);
+  }
+
+  /**
+   * 替换为生成的模型
+   */
+  _replaceWithGeneratedModel(newModel) {
+    if (!this.modelContainer) return;
+
+    // 移除旧模型
+    if (this.model) {
+      this.modelContainer.remove(this.model);
+      this.model.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+    }
+
+    // 添加新模型
+    this.model = modelLoader.cloneModel(newModel);
+    this.modelContainer.add(this.model);
+
+    // 重新注册交互
+    this.model.traverse(child => {
+      if (child.isMesh) {
+        this.engine.interactionSystem.register(child, {
+          onClick: () => this.toggle(),
+          onHoverStart: () => this.onHover(true),
+          onHoverEnd: () => this.onHover(false)
+        });
+      }
+    });
   }
 
   /**
