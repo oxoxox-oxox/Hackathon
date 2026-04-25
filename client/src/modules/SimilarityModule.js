@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BaseModule } from './BaseModule.js';
+import { modelLoader } from '../services/ModelLoader.js';
 
 /**
  * Similarity 模块
@@ -12,21 +13,34 @@ export class SimilarityModule extends BaseModule {
     this.data = config.data;
     this.isExpanded = false;
     this.coreModel = null;
+    this.coreModelContainer = null;
     this.expandButton = null;
     this.relatedNodes = [];
     this.connectionLines = [];
   }
   
   async init() {
-    // 创建核心词模型
-    const { coreModel, coreWord } = this.data;
-    this.coreModel = this.createBasicModel(
-      coreModel.type || 'sphere',
-      coreModel.color || '#FFD700'
-    );
-    this.coreModel.position.set(0, 1.5, 0);
-    this.coreModel.scale.set(1.2, 1.2, 1.2);
-    this.object3D.add(this.coreModel);
+    // 创建核心词模型容器
+    this.coreModelContainer = new THREE.Group();
+    this.coreModelContainer.position.set(0, 1.5, 0);
+    this.coreModelContainer.scale.set(1.2, 1.2, 1.2);
+    this.object3D.add(this.coreModelContainer);
+    
+    // 加载核心词本地模型
+    const { coreWord } = this.data;
+    try {
+      this.coreModel = await modelLoader.loadByWord(coreWord, {
+        scale: 0.8,
+        color: 0xFFD700
+      });
+    } catch (error) {
+      const { coreModel } = this.data;
+      this.coreModel = this.createBasicModel(
+        coreModel?.type || 'sphere',
+        coreModel?.color || '#FFD700'
+      );
+    }
+    this.coreModelContainer.add(this.coreModel);
     
     // 创建核心词标签
     this.coreLabel = this.createTextSprite(coreWord, {
@@ -42,11 +56,22 @@ export class SimilarityModule extends BaseModule {
     // 预创建相关词节点（初始隐藏）
     this.createRelatedNodes();
     
-    // 注册交互
-    this.engine.interactionSystem.register(this.coreModel, {
+    // 注册交互（对容器注册）
+    this.engine.interactionSystem.register(this.coreModelContainer, {
       onClick: () => this.toggleExpand(),
       onHoverStart: () => this.onCoreHover(true),
       onHoverEnd: () => this.onCoreHover(false)
+    });
+    
+    // 对核心模型的所有子mesh注册交互
+    this.coreModel.traverse(child => {
+      if (child.isMesh) {
+        this.engine.interactionSystem.register(child, {
+          onClick: () => this.toggleExpand(),
+          onHoverStart: () => this.onCoreHover(true),
+          onHoverEnd: () => this.onCoreHover(false)
+        });
+      }
     });
     
     this.object3D.visible = false;
@@ -242,9 +267,9 @@ export class SimilarityModule extends BaseModule {
    */
   onCoreHover(isHovering) {
     if (isHovering) {
-      this.animateScale(this.coreModel, 1.3, 150);
+      this.animateScale(this.coreModelContainer, 1.3, 150);
     } else {
-      this.animateScale(this.coreModel, 1.2, 150);
+      this.animateScale(this.coreModelContainer, 1.2, 150);
     }
   }
   
@@ -304,8 +329,8 @@ export class SimilarityModule extends BaseModule {
     this.expandButtonPlus.visible = true;
     
     // 入场动画
-    this.coreModel.scale.set(0.01, 0.01, 0.01);
-    this.animateScale(this.coreModel, 1.2, 500);
+    this.coreModelContainer.scale.set(0.01, 0.01, 0.01);
+    this.animateScale(this.coreModelContainer, 1.2, 500);
   }
   
   /**
@@ -315,7 +340,7 @@ export class SimilarityModule extends BaseModule {
     if (!this.isActive) return;
     
     // 核心模型旋转
-    this.coreModel.rotation.y += delta * 0.5;
+    this.coreModelContainer.rotation.y += delta * 0.5;
     
     // 展开按钮脉动
     if (!this.isExpanded) {

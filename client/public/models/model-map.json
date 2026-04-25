@@ -1,0 +1,4 @@
+{
+  "_comment": "预生成的 3D 模型映射表",
+  "_usage": "运行 node --env-file-if-exists=/vercel/share/.env.project scripts/generate-models.js [数量] 来生成模型"
+}

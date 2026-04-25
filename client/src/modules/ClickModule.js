@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { BaseModule } from './BaseModule.js';
+import { modelLoader } from '../services/ModelLoader.js';
 
 /**
  * Click 模块
  * 状态/形态切换，强调对立变化词义
- * 支持从 Tripo API 加载 3D 模型
+ * 支持从本地加载预生成的 3D 模型
  */
 export class ClickModule extends BaseModule {
   constructor(engine, config) {
@@ -24,23 +25,8 @@ export class ClickModule extends BaseModule {
     this.modelContainer.position.set(0, 1.2, 0);
     this.object3D.add(this.modelContainer);
 
-    // 检查是否有 modelPrompt，使用 Tripo 生成模型
-    if (this.data.modelPrompt) {
-      // 先显示占位模型
-      this.model = this.createBasicModel('sphere', '#4CAF50');
-      this.modelContainer.add(this.model);
-      
-      // 异步加载 Tripo 模型
-      this.loadTripoModelAsync();
-    } else {
-      // 使用基础几何模型
-      const { initialModel } = this.data;
-      this.model = this.createBasicModel(
-        initialModel?.type || 'box',
-        initialModel?.color || '#4CAF50'
-      );
-      this.modelContainer.add(this.model);
-    }
+    // 加载本地模型（如果存在）或使用占位模型
+    await this.loadLocalModel();
     
     // 创建文本标签
     this.updateLabel();
@@ -57,30 +43,34 @@ export class ClickModule extends BaseModule {
   }
 
   /**
-   * 异步加载 Tripo 模型
+   * 加载本地模型
    */
-  async loadTripoModelAsync() {
-    if (this.isLoadingModel || !this.data.modelPrompt) return;
-    
+  async loadLocalModel() {
+    const word = this.data.word;
+    if (!word) {
+      // 使用基础几何模型
+      const { initialModel } = this.data;
+      this.model = this.createBasicModel(
+        initialModel?.type || 'box',
+        initialModel?.color || '#4CAF50'
+      );
+      this.modelContainer.add(this.model);
+      return;
+    }
+
     this.isLoadingModel = true;
-    console.log('[v0] ClickModule 加载 Tripo 模型:', this.data.modelPrompt);
 
     try {
-      const tripoModel = await this.loadTripoModel(this.data.modelPrompt, {
-        scale: 0.8
+      // 从本地加载模型（或占位模型）
+      const model = await modelLoader.loadByWord(word, {
+        scale: 0.8,
+        color: 0x4CAF50
       });
 
-      // 移除占位模型
-      if (this.model) {
-        this.modelContainer.remove(this.model);
-        this.disposeModel(this.model);
-      }
-
-      // 添加 Tripo 模型
-      this.model = tripoModel;
+      this.model = model;
       this.modelContainer.add(this.model);
 
-      // 重新注册交互（针对新模型的所有子对象）
+      // 注册交互（针对新模型的所有子对象）
       this.model.traverse(child => {
         if (child.isMesh) {
           this.engine.interactionSystem.register(child, {
@@ -90,10 +80,11 @@ export class ClickModule extends BaseModule {
           });
         }
       });
-
-      console.log('[v0] ClickModule Tripo 模型加载成功');
     } catch (error) {
-      console.error('[v0] ClickModule Tripo 模型加载失败:', error);
+      console.error('[v0] ClickModule 模型加载失败:', error);
+      // 使用基础几何模型
+      this.model = this.createBasicModel('sphere', '#4CAF50');
+      this.modelContainer.add(this.model);
     } finally {
       this.isLoadingModel = false;
     }
