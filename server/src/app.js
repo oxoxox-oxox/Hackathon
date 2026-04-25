@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { learningRouter } from './routes/learning.js';
 import { tripoRouter } from './routes/tripo.js';
+import vocabularyRouter from './routes/vocabulary.js';
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.get('/api/health', (req, res) => {
 // 路由注册
 app.use('/api/learning', learningRouter);
 app.use('/api/tripo', tripoRouter);
+app.use('/api/vocabulary', vocabularyRouter);
 
 // 错误处理中间件
 app.use((err, req, res, next) => {

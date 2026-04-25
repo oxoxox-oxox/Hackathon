@@ -3,9 +3,9 @@ import * as sessionService from '../services/sessionService.js';
 /**
  * 获取默认学习会话
  */
-export function getDefaultSession(req, res, next) {
+export async function getDefaultSession(req, res, next) {
   try {
-    const session = sessionService.getDefaultSession();
+    const session = await sessionService.getDefaultSession();
     res.json({
       success: true,
       data: session
@@ -18,9 +18,9 @@ export function getDefaultSession(req, res, next) {
 /**
  * 获取所有可用会话列表
  */
-export function getAllSessions(req, res, next) {
+export async function getAllSessions(req, res, next) {
   try {
-    const sessions = sessionService.getAllSessions();
+    const sessions = await sessionService.getAllSessions();
     res.json({
       success: true,
       data: sessions
@@ -33,10 +33,10 @@ export function getAllSessions(req, res, next) {
 /**
  * 根据 ID 获取特定会话
  */
-export function getSessionById(req, res, next) {
+export async function getSessionById(req, res, next) {
   try {
     const { id } = req.params;
-    const session = sessionService.getSessionById(id);
+    const session = await sessionService.getSessionById(id);
     
     if (!session) {
       return res.status(404).json({

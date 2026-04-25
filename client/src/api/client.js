@@ -137,7 +137,66 @@ export const tripoApi = {
   }
 };
 
+/**
+ * 词汇 API
+ */
+export const vocabularyApi = {
+  /**
+   * 获取所有词汇
+   */
+  async getAllWords() {
+    const result = await request('/vocabulary');
+    return result.words;
+  },
+  
+  /**
+   * 获取分页词汇
+   */
+  async getWordsPaginated(page = 1, pageSize = 10) {
+    const result = await request(`/vocabulary/paginated?page=${page}&pageSize=${pageSize}`);
+    return result;
+  },
+  
+  /**
+   * 搜索词汇
+   */
+  async searchWords(query) {
+    const result = await request(`/vocabulary/search?q=${encodeURIComponent(query)}`);
+    return result.words;
+  },
+  
+  /**
+   * 获取单个词汇
+   */
+  async getWord(index) {
+    const result = await request(`/vocabulary/${index}`);
+    return result.word;
+  },
+  
+  /**
+   * 为词汇生成 3D 模型
+   */
+  async generateModel(index) {
+    const result = await request(`/vocabulary/${index}/generate-model`, {
+      method: 'POST'
+    });
+    return result;
+  },
+  
+  /**
+   * 批量生成模型
+   */
+  async batchGenerateModels(count = 5) {
+    const result = await request('/vocabulary/batch-generate', {
+      method: 'POST',
+      body: { count }
+    });
+    return result;
+  }
+};
+
 export default {
   learning: learningApi,
-  tripo: tripoApi
+  tripo: tripoApi,
+  vocabulary: vocabularyApi
 };
